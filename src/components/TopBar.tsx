@@ -1,14 +1,18 @@
-import { Compass, Plus, Table2 } from 'lucide-react';
+import { Compass, Plus, Table2, Download, Route } from 'lucide-react';
 
 interface TopBarProps {
   onOpenStopwatch: () => void;
   onOpenTable: () => void;
+  onOpenExport: () => void;
+  onOpenGpxImport: () => void;
   pointsCount: number;
 }
 
 export default function TopBar({
   onOpenStopwatch,
   onOpenTable,
+  onOpenExport,
+  onOpenGpxImport,
   pointsCount,
 }: TopBarProps) {
   return (
@@ -40,6 +44,24 @@ export default function TopBar({
 
       {/* Zone 3: 1-2 primary actions */}
       <div className="flex items-center gap-2">
+        <button
+          onClick={onOpenGpxImport}
+          className="px-3 py-1.5 text-xs font-medium text-slate-300 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg flex items-center gap-1.5 transition-colors whitespace-nowrap shadow-sm"
+          title="Importera förinspelat GPS-spår eller ekolodslogg (.gpx)"
+        >
+          <Route className="w-3.5 h-3.5 text-emerald-400" />
+          <span className="hidden sm:inline">GPX</span>
+        </button>
+
+        <button
+          onClick={onOpenExport}
+          className="px-3 py-1.5 text-xs font-medium text-slate-300 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg flex items-center gap-1.5 transition-colors whitespace-nowrap shadow-sm"
+          title="Exportera kartdata som CSV, GeoJSON eller JSON"
+        >
+          <Download className="w-3.5 h-3.5 text-cyan-400" />
+          <span className="hidden sm:inline">Exportera</span>
+        </button>
+
         <button
           onClick={onOpenTable}
           className="px-3 py-1.5 text-xs font-medium text-slate-300 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg flex items-center gap-1.5 transition-colors whitespace-nowrap"

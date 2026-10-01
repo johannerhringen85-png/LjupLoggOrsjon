@@ -98,14 +98,14 @@ export function calculateStats(points: CalculatedPoint[]): DepthStats {
  * Export points as CSV string
  */
 export function exportToCSV(points: CalculatedPoint[], sinkRate: number): string {
-  const headers = ['id', 'lat', 'lng', 'seconds', 'weight_g', 'calculated_depth_m', 'sink_rate_ms', 'date', 'time', 'note'];
+  const headers = ['id', 'lat', 'lng', 'depth_m', 'seconds', 'weight_g', 'sink_rate_ms', 'date', 'time', 'note'];
   const rows = points.map(p => [
     p.id,
     p.lat,
     p.lng,
+    p.calculatedDepth,
     p.seconds,
     p.weight_g,
-    p.calculatedDepth,
     sinkRate,
     `"${p.date}"`,
     `"${p.time}"`,
@@ -113,6 +113,61 @@ export function exportToCSV(points: CalculatedPoint[], sinkRate: number): string
   ]);
 
   return [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
+}
+
+/**
+ * Export points as standard GeoJSON FeatureCollection
+ */
+export function exportToGeoJSON(points: CalculatedPoint[], sinkRate: number): string {
+  const geojson = {
+    type: 'FeatureCollection',
+    name: 'Orsjon_Djupkarta',
+    crs: {
+      type: 'name',
+      properties: {
+        name: 'urn:ogc:def:crs:OGC:1.3:CRS84'
+      }
+    },
+    features: points.map(p => ({
+      type: 'Feature',
+      id: p.id,
+      properties: {
+        id: p.id,
+        depth_m: p.calculatedDepth,
+        seconds: p.seconds,
+        weight_g: p.weight_g,
+        sink_rate_ms: sinkRate,
+        date: p.date,
+        time: p.time,
+        note: p.note || null
+      },
+      geometry: {
+        type: 'Point',
+        coordinates: [p.lng, p.lat]
+      }
+    }))
+  };
+
+  return JSON.stringify(geojson, null, 2);
+}
+
+/**
+ * Export points as native application JSON
+ */
+export function exportToNativeJSON(points: CalculatedPoint[], sinkRate: number): string {
+  const data = points.map(p => ({
+    id: p.id,
+    lat: p.lat,
+    lng: p.lng,
+    seconds: p.seconds,
+    weight_g: p.weight_g,
+    depth_m: p.calculatedDepth,
+    sink_rate_ms: sinkRate,
+    date: p.date,
+    time: p.time,
+    note: p.note
+  }));
+  return JSON.stringify(data, null, 2);
 }
 
 /**

@@ -1,12 +1,14 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import { DepthPoint, CalculatedPoint, LakePreset } from './types';
-import { INITIAL_ORSJON_DATA, ORSJON_PRESETS } from './data/orsjonSampleData';
+import { INITIAL_ORSJON_DATA } from './data/orsjonSampleData';
 import { calculateDepth, calculateStats, parseCSV } from './utils/depthCalc';
 import TopBar from './components/TopBar';
 import Sidebar from './components/Sidebar';
 import DepthMap from './components/DepthMap';
 import SoundingStopwatch from './components/SoundingStopwatch';
 import PointsTableModal from './components/PointsTableModal';
+import ExportModal from './components/ExportModal';
+import GpxImportModal from './components/GpxImportModal';
 
 const STORAGE_KEY_POINTS = 'orsjon_depth_points_v1';
 const STORAGE_KEY_SINKRATE = 'orsjon_sink_rate_v1';
@@ -44,12 +46,16 @@ export default function App() {
   const [selectedPointId, setSelectedPointId] = useState<string | null>(null);
   const [isStopwatchOpen, setIsStopwatchOpen] = useState(false);
   const [isTableModalOpen, setIsTableModalOpen] = useState(false);
+  const [isExportModalOpen, setIsExportModalOpen] = useState(false);
+  const [isGpxModalOpen, setIsGpxModalOpen] = useState(false);
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
   const [isAddMode, setIsAddMode] = useState(false);
   const [pendingCoords, setPendingCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [filterDepthRange, setFilterDepthRange] = useState<[number, number]>([0, 30]);
   const [showDepthLabels, setShowDepthLabels] = useState(false);
   const [showBathymetrySurface, setShowBathymetrySurface] = useState(false);
+  const [showHeatmap, setShowHeatmap] = useState(false);
+  const [heatmapRadius, setHeatmapRadius] = useState(35);
 
   // Persist points when updated
   useEffect(() => {
@@ -80,6 +86,13 @@ export default function App() {
       };
     });
   }, [points, sinkRate]);
+
+  // Filtered points currently visible/displayed on the map
+  const displayedPoints = useMemo(() => {
+    return calculatedPoints.filter(
+      (p) => p.calculatedDepth >= filterDepthRange[0] && p.calculatedDepth <= filterDepthRange[1]
+    );
+  }, [calculatedPoints, filterDepthRange]);
 
   // Real-time lake depth statistics
   const stats = useMemo(() => {
@@ -198,6 +211,16 @@ export default function App() {
     setSelectedPointId(null);
   };
 
+  // GPX import handler
+  const handleImportGpxPoints = (newPoints: DepthPoint[], mode: 'append' | 'replace') => {
+    if (mode === 'replace') {
+      setPoints(newPoints);
+    } else {
+      setPoints((prev) => [...newPoints, ...prev]);
+    }
+    setSelectedPointId(null);
+  };
+
   // Trigger map coordinate picker mode
   const handleTriggerMapPick = () => {
     setIsStopwatchOpen(false);
@@ -231,6 +254,8 @@ export default function App() {
           setIsStopwatchOpen(true);
         }}
         onOpenTable={() => setIsTableModalOpen(true)}
+        onOpenExport={() => setIsExportModalOpen(true)}
+        onOpenGpxImport={() => setIsGpxModalOpen(true)}
         pointsCount={points.length}
       />
 
@@ -243,6 +268,8 @@ export default function App() {
           onSinkRateChange={setSinkRate}
           onImportFile={handleImportFile}
           onRestoreSampleData={handleRestoreSampleData}
+          onOpenExport={() => setIsExportModalOpen(true)}
+          onOpenGpxImport={() => setIsGpxModalOpen(true)}
           onExportJSON={handleExportJSON}
           filterDepthRange={filterDepthRange}
           onFilterDepthRangeChange={setFilterDepthRange}
@@ -269,6 +296,10 @@ export default function App() {
             onToggleDepthLabels={() => setShowDepthLabels(!showDepthLabels)}
             showBathymetrySurface={showBathymetrySurface}
             onToggleBathymetrySurface={() => setShowBathymetrySurface(!showBathymetrySurface)}
+            showHeatmap={showHeatmap}
+            onToggleHeatmap={() => setShowHeatmap(!showHeatmap)}
+            heatmapRadius={heatmapRadius}
+            onHeatmapRadiusChange={setHeatmapRadius}
           />
         </main>
       </div>
@@ -294,7 +325,27 @@ export default function App() {
           onDeletePoint={handleDeletePoint}
           onClearAll={handleClearAll}
           onClose={() => setIsTableModalOpen(false)}
-          onExportJSON={handleExportJSON}
+          onExportJSON={() => setIsExportModalOpen(true)}
+        />
+      )}
+
+      {/* Selectable Data Export Modal (CSV, GeoJSON, JSON) */}
+      {isExportModalOpen && (
+        <ExportModal
+          displayedPoints={displayedPoints}
+          allPoints={calculatedPoints}
+          sinkRate={sinkRate}
+          onClose={() => setIsExportModalOpen(false)}
+        />
+      )}
+
+      {/* Secondary GPX Import Flow Modal */}
+      {isGpxModalOpen && (
+        <GpxImportModal
+          currentPointsCount={points.length}
+          sinkRate={sinkRate}
+          onImportGpxPoints={handleImportGpxPoints}
+          onClose={() => setIsGpxModalOpen(false)}
         />
       )}
     </div>

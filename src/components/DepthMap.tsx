@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import L from 'leaflet';
+import * as d3 from 'd3';
 import { CalculatedPoint, MapTileProvider } from '../types';
 import { getDepthColor, getMarkerRadius } from '../utils/depthCalc';
-import { Layers, Crosshair, ZoomIn, ZoomOut, Locate, Eye, EyeOff, Radio } from 'lucide-react';
+import { Layers, Crosshair, ZoomIn, ZoomOut, Locate, Eye, EyeOff, Radio, Flame } from 'lucide-react';
 
 interface DepthMapProps {
   points: CalculatedPoint[];
@@ -17,6 +18,10 @@ interface DepthMapProps {
   onToggleDepthLabels: () => void;
   showBathymetrySurface: boolean;
   onToggleBathymetrySurface: () => void;
+  showHeatmap: boolean;
+  onToggleHeatmap: () => void;
+  heatmapRadius: number;
+  onHeatmapRadiusChange: (radius: number) => void;
 }
 
 const TILE_LAYERS: Record<MapTileProvider, { name: string; url: string; attribution: string; maxZoom: number }> = {
@@ -59,12 +64,17 @@ export default function DepthMap({
   onToggleDepthLabels,
   showBathymetrySurface,
   onToggleBathymetrySurface,
+  showHeatmap,
+  onToggleHeatmap,
+  heatmapRadius,
+  onHeatmapRadiusChange,
 }: DepthMapProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   const tileLayerRef = useRef<L.TileLayer | null>(null);
   const markersLayerRef = useRef<L.LayerGroup | null>(null);
   const canvasOverlayRef = useRef<HTMLCanvasElement | null>(null);
+  const heatmapCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const markersMapRef = useRef<Map<string, L.CircleMarker>>(new Map());
   const selectedRingRef = useRef<L.CircleMarker | null>(null);
 
@@ -265,19 +275,28 @@ export default function DepthMap({
         const popup = marker.getPopup();
         if (popup) {
           popup.setContent(popupHtml);
+          if (marker.isPopupOpen()) {
+            popup.update();
+          }
         } else {
           marker.bindPopup(popupHtml, { className: 'custom-popup' });
         }
 
-        // Update tooltip if depth labels are active
-        marker.unbindTooltip();
+        // Update tooltip smoothly if depth labels are active
+        const tooltip = marker.getTooltip();
         if (showDepthLabels) {
-          marker.bindTooltip(`${p.calculatedDepth.toFixed(1)}m`, {
-            permanent: true,
-            direction: 'top',
-            className: 'depth-tooltip',
-            offset: [0, -currentRadius],
-          });
+          if (tooltip) {
+            marker.setTooltipContent(`${p.calculatedDepth.toFixed(1)}m`);
+          } else {
+            marker.bindTooltip(`${p.calculatedDepth.toFixed(1)}m`, {
+              permanent: true,
+              direction: 'top',
+              className: 'depth-tooltip',
+              offset: [0, -currentRadius],
+            });
+          }
+        } else if (tooltip) {
+          marker.unbindTooltip();
         }
       } else {
         // Create new marker
@@ -451,6 +470,102 @@ export default function DepthMap({
     };
   }, [showBathymetrySurface, points, maxDepth, currentZoom]);
 
+  // D3 Density Heatmap Overlay for Point Concentration
+  useEffect(() => {
+    const map = mapInstanceRef.current;
+    const canvas = heatmapCanvasRef.current;
+    if (!map || !canvas) return;
+
+    if (!showHeatmap || points.length === 0) {
+      const ctx = canvas.getContext('2d');
+      if (ctx) ctx.clearRect(0, 0, canvas.width, canvas.height);
+      return;
+    }
+
+    // Precalculate D3 Turbo Color Lookup Table (256 color steps)
+    const colorLUT = new Uint8ClampedArray(256 * 4);
+    for (let i = 0; i < 256; i++) {
+      const t = i / 255;
+      const c = d3.rgb(d3.interpolateTurbo(t));
+      colorLUT[i * 4] = c.r;
+      colorLUT[i * 4 + 1] = c.g;
+      colorLUT[i * 4 + 2] = c.b;
+      // Smooth alpha ramp
+      colorLUT[i * 4 + 3] = i < 8 ? 0 : Math.min(210, Math.round(35 + t * 165));
+    }
+
+    const renderHeatmap = () => {
+      const size = map.getSize();
+      canvas.width = size.x;
+      canvas.height = size.y;
+
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+      const radius = Math.max(15, heatmapRadius);
+      const [minFilter, maxFilter] = filterDepthRange;
+      const activePoints = points.filter(
+        p => p.calculatedDepth >= minFilter && p.calculatedDepth <= maxFilter
+      );
+
+      if (activePoints.length === 0) return;
+
+      // Pass 1: Accumulate alpha density
+      const shadowCanvas = document.createElement('canvas');
+      shadowCanvas.width = size.x;
+      shadowCanvas.height = size.y;
+      const shadowCtx = shadowCanvas.getContext('2d');
+      if (!shadowCtx) return;
+
+      // Radial brush
+      const brushCanvas = document.createElement('canvas');
+      brushCanvas.width = radius * 2;
+      brushCanvas.height = radius * 2;
+      const brushCtx = brushCanvas.getContext('2d');
+      if (brushCtx) {
+        const grad = brushCtx.createRadialGradient(radius, radius, 0, radius, radius, radius);
+        grad.addColorStop(0, 'rgba(0, 0, 0, 0.45)');
+        grad.addColorStop(0.4, 'rgba(0, 0, 0, 0.22)');
+        grad.addColorStop(1, 'rgba(0, 0, 0, 0)');
+        brushCtx.fillStyle = grad;
+        brushCtx.fillRect(0, 0, radius * 2, radius * 2);
+      }
+
+      activePoints.forEach(p => {
+        const pt = map.latLngToContainerPoint([p.lat, p.lng]);
+        if (pt.x >= -radius && pt.x <= size.x + radius && pt.y >= -radius && pt.y <= size.y + radius) {
+          shadowCtx.drawImage(brushCanvas, pt.x - radius, pt.y - radius);
+        }
+      });
+
+      // Pass 2: Color mapping through D3 LUT
+      const imgData = shadowCtx.getImageData(0, 0, size.x, size.y);
+      const data = imgData.data;
+      for (let i = 3; i < data.length; i += 4) {
+        const alpha = data[i];
+        if (alpha > 0) {
+          const offset = alpha * 4;
+          data[i - 3] = colorLUT[offset];
+          data[i - 2] = colorLUT[offset + 1];
+          data[i - 1] = colorLUT[offset + 2];
+          data[i] = colorLUT[offset + 3];
+        }
+      }
+
+      ctx.putImageData(imgData, 0, 0);
+    };
+
+    renderHeatmap();
+    map.on('moveend', renderHeatmap);
+    map.on('zoomend', renderHeatmap);
+
+    return () => {
+      map.off('moveend', renderHeatmap);
+      map.off('zoomend', renderHeatmap);
+    };
+  }, [showHeatmap, points, heatmapRadius, filterDepthRange, currentZoom]);
+
   // Fit bounds to points
   const handleFitBounds = () => {
     if (!mapInstanceRef.current || points.length === 0) return;
@@ -502,6 +617,12 @@ export default function DepthMap({
       <canvas
         ref={canvasOverlayRef}
         className="absolute inset-0 pointer-events-none z-[400]"
+      />
+
+      {/* D3 Density Heatmap Overlay */}
+      <canvas
+        ref={heatmapCanvasRef}
+        className="absolute inset-0 pointer-events-none z-[405]"
       />
 
       {/* Crosshair instruction badge when Add Point Mode is active */}
@@ -578,6 +699,20 @@ export default function DepthMap({
           <span>Djupvy</span>
         </button>
 
+        {/* Toggle D3 Density Heatmap */}
+        <button
+          onClick={onToggleHeatmap}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border backdrop-blur transition-all shadow-lg ${
+            showHeatmap
+              ? 'bg-amber-950/80 border-amber-500/60 text-amber-300'
+              : 'bg-slate-900/80 border-slate-700/80 text-slate-400 hover:text-slate-200'
+          }`}
+          title="Visa D3 värmekarta över punkttäthet och koncentrationsområden"
+        >
+          <Flame className={`w-3.5 h-3.5 ${showHeatmap ? 'text-amber-400 fill-amber-400/40' : 'text-slate-400'}`} />
+          <span>Värmekarta</span>
+        </button>
+
         {/* Map Style Selector Dropdown */}
         <div className="relative">
           <button
@@ -642,6 +777,37 @@ export default function DepthMap({
             </>
           )}
         </div>
+
+        {/* D3 Heatmap Concentration Legend */}
+        {showHeatmap && (
+          <div className="pointer-events-auto bg-slate-900/90 backdrop-blur border border-amber-500/40 rounded-lg p-2.5 text-xs shadow-xl min-w-[240px] animate-in fade-in">
+            <div className="flex items-center justify-between text-[10px] uppercase font-semibold text-slate-400 mb-1.5">
+              <span className="flex items-center gap-1 text-amber-400 font-bold">
+                <Flame className="w-3 h-3 fill-amber-400/40" />
+                <span>Koncentration (D3)</span>
+              </span>
+              <span className="font-mono text-amber-300">{heatmapRadius}px radie</span>
+            </div>
+            <div className="h-2 w-full rounded overflow-hidden flex border border-slate-700/50 mb-1 bg-gradient-to-r from-blue-700 via-emerald-400 via-yellow-400 to-rose-600" />
+            <div className="flex items-center justify-between text-[9px] text-slate-400 font-mono mb-2">
+              <span>Låg densitet</span>
+              <span>Medel</span>
+              <span>Hög täthet</span>
+            </div>
+            <div className="flex items-center gap-2 pt-1 border-t border-slate-800">
+              <span className="text-[10px] text-slate-400 shrink-0">Radie:</span>
+              <input
+                type="range"
+                min="18"
+                max="60"
+                step="2"
+                value={heatmapRadius}
+                onChange={(e) => onHeatmapRadiusChange(parseInt(e.target.value))}
+                className="w-full accent-amber-400 cursor-pointer h-1.5 bg-slate-800 rounded appearance-none"
+              />
+            </div>
+          </div>
+        )}
 
         {/* Bathymetric Depth Scale Legend */}
         <div className="pointer-events-auto bg-slate-900/90 backdrop-blur border border-slate-700/80 rounded-lg p-2 text-xs shadow-xl min-w-[240px]">

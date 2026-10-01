@@ -1,5 +1,5 @@
 import React, { useRef } from 'react';
-import { Upload, RotateCcw, Sliders, ChevronRight, Download, SlidersHorizontal, MapPin, Info } from 'lucide-react';
+import { Upload, RotateCcw, Sliders, ChevronRight, Download, SlidersHorizontal, MapPin, Route, Compass } from 'lucide-react';
 import { CalculatedPoint, DepthStats, LakePreset } from '../types';
 import { ORSJON_PRESETS } from '../data/orsjonSampleData';
 
@@ -9,6 +9,8 @@ interface SidebarProps {
   onSinkRateChange: (newRate: number) => void;
   onImportFile: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onRestoreSampleData: () => void;
+  onOpenExport: () => void;
+  onOpenGpxImport: () => void;
   onExportJSON: () => void;
   filterDepthRange: [number, number];
   onFilterDepthRangeChange: (range: [number, number]) => void;
@@ -26,6 +28,8 @@ export default function Sidebar({
   onSinkRateChange,
   onImportFile,
   onRestoreSampleData,
+  onOpenExport,
+  onOpenGpxImport,
   onExportJSON,
   filterDepthRange,
   onFilterDepthRangeChange,
@@ -38,16 +42,18 @@ export default function Sidebar({
 }: SidebarProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const handleRateInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = parseFloat(e.target.value);
+  const handleRateInputChange = (e: React.ChangeEvent<HTMLInputElement> | React.FormEvent<HTMLInputElement>) => {
+    const val = parseFloat((e.currentTarget as HTMLInputElement).value);
     if (!isNaN(val) && val > 0 && val <= 5.0) {
       onSinkRateChange(parseFloat(val.toFixed(2)));
     }
   };
 
-  const handleSliderChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const val = parseFloat(e.target.value);
-    onSinkRateChange(parseFloat(val.toFixed(2)));
+  const handleSliderChange = (e: React.ChangeEvent<HTMLInputElement> | React.FormEvent<HTMLInputElement>) => {
+    const val = parseFloat((e.currentTarget as HTMLInputElement).value);
+    if (!isNaN(val)) {
+      onSinkRateChange(parseFloat(val.toFixed(2)));
+    }
   };
 
   return (
@@ -82,6 +88,7 @@ export default function Sidebar({
           </label>
           <input
             ref={fileInputRef}
+            id="file-input"
             type="file"
             accept=".json,.csv"
             onChange={onImportFile}
@@ -95,18 +102,41 @@ export default function Sidebar({
               title="Ladda om de förinställda lodningspunkterna för Orsjön"
             >
               <RotateCcw className="w-3 h-3" />
-              <span>Återställ Orsjön-data</span>
+              <span>Återställ demo</span>
             </button>
 
             <button
-              onClick={onExportJSON}
-              className="text-[11px] text-slate-400 hover:text-cyan-400 flex items-center gap-1 transition-colors"
-              title="Spara ned punkterna som en JSON-fil"
+              onClick={onOpenExport}
+              className="text-[11px] text-cyan-400 hover:text-cyan-300 font-semibold flex items-center gap-1 transition-colors"
+              title="Exportera kartdata som CSV, GeoJSON eller JSON"
             >
               <Download className="w-3 h-3" />
-              <span>Spara fil</span>
+              <span>Exportera...</span>
             </button>
           </div>
+        </div>
+
+        {/* Secondary Import Flow: GPX Tracks & Sonar Logs */}
+        <div className="bg-slate-950/70 p-3.5 rounded-lg border border-slate-800">
+          <div className="flex items-center justify-between mb-1">
+            <span className="text-xs font-semibold text-slate-200 flex items-center gap-1.5">
+              <Route className="w-3.5 h-3.5 text-emerald-400" />
+              <span>GPX Spårlogg (Ekolod / GPS)</span>
+            </span>
+            <span className="text-[9px] uppercase font-mono px-1.5 py-0.5 rounded bg-emerald-950 border border-emerald-500/40 text-emerald-300 font-bold">
+              GPX
+            </span>
+          </div>
+          <p className="text-[10px] text-slate-400 mb-2.5 leading-relaxed">
+            Importera förinspelade båtspår från Garmin, Lowrance, OsmAnd eller GPS-plotter.
+          </p>
+          <button
+            onClick={onOpenGpxImport}
+            className="w-full py-1.5 px-3 bg-emerald-950/60 hover:bg-emerald-900/60 text-emerald-200 border border-emerald-500/40 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors shadow-sm"
+          >
+            <Compass className="w-3.5 h-3.5 text-emerald-400" />
+            <span>Öppna GPX-importör...</span>
+          </button>
         </div>
 
         {/* Real-Time Calibration (Sjunkhastighet) */}
@@ -116,21 +146,26 @@ export default function Sidebar({
               <Sliders className="w-3.5 h-3.5 text-cyan-400" />
               <span>Kalibrering (Sjunkhastighet)</span>
             </h3>
-            <span className="font-mono text-xs font-bold text-cyan-300 bg-cyan-950/80 px-2 py-0.5 rounded border border-cyan-500/30">
-              {sinkRate.toFixed(2)} m/s
-            </span>
+            <div className="flex items-center gap-1.5">
+              <span className="inline-block w-2 h-2 rounded-full bg-emerald-400 animate-pulse" title="Realtidsberäkning aktiv" />
+              <span className="font-mono text-xs font-bold text-cyan-300 bg-cyan-950/80 px-2 py-0.5 rounded border border-cyan-500/30">
+                {sinkRate.toFixed(2)} m/s
+              </span>
+            </div>
           </div>
 
-          <p className="text-[10px] text-slate-400 mb-3 leading-relaxed">
-            Hur många meter per sekund sjunker ett 20g bly? Djupvärden uppdateras direkt i realtid på kartan.
+          <p className="text-[10px] text-slate-400 mb-2.5 leading-relaxed">
+            Hur många meter per sekund sjunker ett 20g bly? Djup och markörer uppdateras direkt i realtid när du drar i reglaget.
           </p>
 
           {/* Stepper + Unit input */}
-          <div className="flex items-center gap-2 mb-3">
+          <div className="flex items-center gap-2 mb-2.5">
             <input
+              id="sink-rate"
               type="number"
               value={sinkRate}
               onChange={handleRateInputChange}
+              onInput={handleRateInputChange}
               step="0.05"
               min="0.1"
               max="3.0"
@@ -139,21 +174,23 @@ export default function Sidebar({
             <span className="text-xs text-slate-400 font-mono">m/s (referens 20g)</span>
           </div>
 
-          {/* Precision Slider Rail */}
+          {/* Precision Real-time Slider Rail */}
           <div className="space-y-1 mb-2">
             <input
+              id="sink-rate-slider"
               type="range"
-              min="0.2"
-              max="2.0"
-              step="0.05"
+              min="0.1"
+              max="2.5"
+              step="0.01"
               value={sinkRate}
               onChange={handleSliderChange}
-              className="w-full accent-cyan-400 cursor-pointer h-1.5 bg-slate-800 rounded-lg appearance-none"
+              onInput={handleSliderChange}
+              className="w-full accent-cyan-400 cursor-pointer h-2 bg-slate-800 rounded-lg appearance-none"
             />
             <div className="flex justify-between text-[9px] text-slate-500 font-mono">
-              <span>0.2 m/s (Långsamt)</span>
-              <span>0.8 (Standard)</span>
-              <span>2.0 m/s (Snabbt)</span>
+              <span>0.1 m/s (Långsamt)</span>
+              <span>0.80 (Normalt)</span>
+              <span>2.5 m/s (Snabbt)</span>
             </div>
           </div>
 
@@ -162,8 +199,8 @@ export default function Sidebar({
             <button
               onClick={() => onSinkRateChange(0.6)}
               className={`py-1 px-1.5 text-[10px] rounded border text-center font-mono transition-colors ${
-                sinkRate === 0.6
-                  ? 'bg-cyan-950 border-cyan-500 text-cyan-300'
+                Math.abs(sinkRate - 0.6) < 0.01
+                  ? 'bg-cyan-950 border-cyan-500 text-cyan-300 font-bold'
                   : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
               }`}
             >
@@ -172,8 +209,8 @@ export default function Sidebar({
             <button
               onClick={() => onSinkRateChange(0.8)}
               className={`py-1 px-1.5 text-[10px] rounded border text-center font-mono transition-colors ${
-                sinkRate === 0.8
-                  ? 'bg-cyan-950 border-cyan-500 text-cyan-300'
+                Math.abs(sinkRate - 0.8) < 0.01
+                  ? 'bg-cyan-950 border-cyan-500 text-cyan-300 font-bold'
                   : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
               }`}
             >
@@ -182,8 +219,8 @@ export default function Sidebar({
             <button
               onClick={() => onSinkRateChange(1.05)}
               className={`py-1 px-1.5 text-[10px] rounded border text-center font-mono transition-colors ${
-                sinkRate === 1.05
-                  ? 'bg-cyan-950 border-cyan-500 text-cyan-300'
+                Math.abs(sinkRate - 1.05) < 0.01
+                  ? 'bg-cyan-950 border-cyan-500 text-cyan-300 font-bold'
                   : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-slate-200'
               }`}
             >
