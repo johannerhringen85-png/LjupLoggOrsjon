@@ -1,0 +1,6 @@
+{
+  "name": "Orsjön Djupkarta",
+  "description": "Interaktiv bathymetrisk djupkarta och lodningsanalys för Orsjön med dynamisk kalibrering och djupvisualisering.",
+  "requestFramePermissions": ["geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
