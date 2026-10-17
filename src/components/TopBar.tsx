@@ -1,10 +1,12 @@
-import { Compass, Plus, Table2, Download, Route } from 'lucide-react';
+import { Compass, Plus, Table2, Download, Route, Navigation } from 'lucide-react';
 
 interface TopBarProps {
   onOpenStopwatch: () => void;
   onOpenTable: () => void;
   onOpenExport: () => void;
   onOpenGpxImport: () => void;
+  onToggleFishingMode: () => void;
+  isFishingMode: boolean;
   pointsCount: number;
 }
 
@@ -13,6 +15,8 @@ export default function TopBar({
   onOpenTable,
   onOpenExport,
   onOpenGpxImport,
+  onToggleFishingMode,
+  isFishingMode,
   pointsCount,
 }: TopBarProps) {
   return (
@@ -45,8 +49,21 @@ export default function TopBar({
       {/* Zone 3: 1-2 primary actions */}
       <div className="flex items-center gap-2">
         <button
+          onClick={onToggleFishingMode}
+          className={`px-3 py-1.5 text-xs font-bold rounded-lg flex items-center gap-1.5 transition-colors whitespace-nowrap shadow-sm border ${
+            isFishingMode
+              ? 'bg-cyan-400 text-slate-950 border-cyan-300'
+              : 'bg-slate-800 hover:bg-slate-700 text-cyan-300 border-cyan-500/40'
+          }`}
+          title="Starta båtliv och djuplodningsläge för fiske"
+        >
+          <Navigation className={`w-3.5 h-3.5 ${isFishingMode ? 'fill-slate-950' : 'text-cyan-400'}`} />
+          <span>Fiskeläge</span>
+        </button>
+
+        <button
           onClick={onOpenGpxImport}
-          className="px-3 py-1.5 text-xs font-medium text-slate-300 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg flex items-center gap-1.5 transition-colors whitespace-nowrap shadow-sm"
+          className="px-2.5 py-1.5 text-xs font-medium text-slate-300 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg flex items-center gap-1.5 transition-colors whitespace-nowrap shadow-sm"
           title="Importera förinspelat GPS-spår eller ekolodslogg (.gpx)"
         >
           <Route className="w-3.5 h-3.5 text-emerald-400" />
@@ -55,7 +72,7 @@ export default function TopBar({
 
         <button
           onClick={onOpenExport}
-          className="px-3 py-1.5 text-xs font-medium text-slate-300 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg flex items-center gap-1.5 transition-colors whitespace-nowrap shadow-sm"
+          className="px-2.5 py-1.5 text-xs font-medium text-slate-300 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg flex items-center gap-1.5 transition-colors whitespace-nowrap shadow-sm"
           title="Exportera kartdata som CSV, GeoJSON eller JSON"
         >
           <Download className="w-3.5 h-3.5 text-cyan-400" />
@@ -64,7 +81,7 @@ export default function TopBar({
 
         <button
           onClick={onOpenTable}
-          className="px-3 py-1.5 text-xs font-medium text-slate-300 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg flex items-center gap-1.5 transition-colors whitespace-nowrap"
+          className="px-2.5 py-1.5 text-xs font-medium text-slate-300 bg-slate-800 hover:bg-slate-700 border border-slate-700 rounded-lg flex items-center gap-1.5 transition-colors whitespace-nowrap"
         >
           <Table2 className="w-3.5 h-3.5 text-slate-400" />
           <span className="hidden sm:inline">Punkter</span>
@@ -73,7 +90,7 @@ export default function TopBar({
 
         <button
           onClick={onOpenStopwatch}
-          className="px-3.5 py-1.5 text-xs font-semibold text-slate-950 bg-cyan-400 hover:bg-cyan-300 rounded-lg flex items-center gap-1.5 transition-colors whitespace-nowrap shadow-md shadow-cyan-950/40"
+          className="px-3 py-1.5 text-xs font-semibold text-slate-950 bg-cyan-400 hover:bg-cyan-300 rounded-lg flex items-center gap-1.5 transition-colors whitespace-nowrap shadow-md shadow-cyan-950/40"
         >
           <Plus className="w-3.5 h-3.5 stroke-[2.5]" />
           <span>Ny lodning</span>

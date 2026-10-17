@@ -236,3 +236,42 @@ export function parseCSV(text: string): DepthPoint[] {
 
   return result;
 }
+
+/**
+ * Estimates depth at any arbitrary lake coordinate (e.g. current boat GPS location)
+ * using Inverse Distance Weighting from existing soundings within influence range.
+ */
+export function estimateDepthAtLocation(lat: number, lng: number, points: CalculatedPoint[]): number | null {
+  if (points.length === 0) return null;
+
+  const latRad = lat * (Math.PI / 180);
+  let num = 0;
+  let den = 0;
+  let closestDist = Infinity;
+  let closestDepth = 0;
+
+  for (const p of points) {
+    const dLat = (p.lat - lat) * 111320;
+    const dLng = (p.lng - lng) * 111320 * Math.cos(latRad);
+    const dist = Math.sqrt(dLat * dLat + dLng * dLng);
+
+    if (dist < closestDist) {
+      closestDist = dist;
+      closestDepth = p.calculatedDepth;
+    }
+
+    if (dist < 280) { // within 280 meters
+      const weight = 1 / Math.pow(Math.max(dist, 8), 2);
+      num += p.calculatedDepth * weight;
+      den += weight;
+    }
+  }
+
+  if (den > 0 && closestDist <= 200) {
+    return parseFloat((num / den).toFixed(1));
+  }
+  if (closestDist <= 300) {
+    return parseFloat(closestDepth.toFixed(1));
+  }
+  return null;
+}

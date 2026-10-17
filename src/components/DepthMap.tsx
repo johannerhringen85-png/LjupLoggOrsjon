@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import L from 'leaflet';
 import * as d3 from 'd3';
-import { CalculatedPoint, MapTileProvider } from '../types';
+import { CalculatedPoint, MapTileProvider, FishCatch, FishSpecies, BoatPosition } from '../types';
 import { getDepthColor, getMarkerRadius } from '../utils/depthCalc';
-import { Layers, Crosshair, ZoomIn, ZoomOut, Locate, Eye, EyeOff, Radio, Flame } from 'lucide-react';
+import { Layers, Crosshair, ZoomIn, ZoomOut, Locate, Eye, EyeOff, Radio, Flame, Fish, Navigation } from 'lucide-react';
 
 interface DepthMapProps {
   points: CalculatedPoint[];
@@ -22,6 +22,13 @@ interface DepthMapProps {
   onToggleHeatmap: () => void;
   heatmapRadius: number;
   onHeatmapRadiusChange: (radius: number) => void;
+  catches: FishCatch[];
+  showCatches: boolean;
+  onToggleCatches: () => void;
+  boatPosition: BoatPosition | null;
+  isFishingMode: boolean;
+  onToggleFishingMode: () => void;
+  isAutoFollow: boolean;
 }
 
 const TILE_LAYERS: Record<MapTileProvider, { name: string; url: string; attribution: string; maxZoom: number }> = {
@@ -68,11 +75,21 @@ export default function DepthMap({
   onToggleHeatmap,
   heatmapRadius,
   onHeatmapRadiusChange,
+  catches,
+  showCatches,
+  onToggleCatches,
+  boatPosition,
+  isFishingMode,
+  onToggleFishingMode,
+  isAutoFollow,
 }: DepthMapProps) {
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   const tileLayerRef = useRef<L.TileLayer | null>(null);
   const markersLayerRef = useRef<L.LayerGroup | null>(null);
+  const catchesLayerRef = useRef<L.LayerGroup | null>(null);
+  const boatLayerRef = useRef<L.LayerGroup | null>(null);
+  const driftHistoryRef = useRef<[number, number][]>([]);
   const canvasOverlayRef = useRef<HTMLCanvasElement | null>(null);
   const heatmapCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const markersMapRef = useRef<Map<string, L.CircleMarker>>(new Map());
@@ -107,6 +124,8 @@ export default function DepthMap({
 
     // Markers layer
     markersLayerRef.current = L.layerGroup().addTo(map);
+    catchesLayerRef.current = L.layerGroup().addTo(map);
+    boatLayerRef.current = L.layerGroup().addTo(map);
 
     mapInstanceRef.current = map;
     setCurrentZoom(map.getZoom());
@@ -605,6 +624,118 @@ export default function DepthMap({
     );
   };
 
+  // Render Fish Catch Markers
+  useEffect(() => {
+    const layer = catchesLayerRef.current;
+    if (!layer) return;
+    layer.clearLayers();
+
+    if (!showCatches || catches.length === 0) return;
+
+    const speciesColors: Record<FishSpecies, string> = {
+      Abborre: '#10b981', // Emerald
+      Gädda: '#f59e0b',   // Amber
+      Gös: '#06b6d4',     // Cyan
+      Öring: '#a855f7',   // Purple
+      Annan: '#94a3b8',
+    };
+
+    catches.forEach(c => {
+      const color = speciesColors[c.species] || '#10b981';
+      const iconHtml = `
+        <div style="background-color: ${color}; width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border: 2px solid #0f172a; box-shadow: 0 4px 10px rgba(0,0,0,0.5);">
+          <span style="font-size: 11px;">🐟</span>
+        </div>
+      `;
+
+      const marker = L.marker([c.lat, c.lng], {
+        icon: L.divIcon({
+          html: iconHtml,
+          className: '',
+          iconSize: [22, 22],
+          iconAnchor: [11, 11],
+        }),
+      });
+
+      const popupHtml = `
+        <div class="p-1 min-w-[190px]">
+          <div class="font-bold text-emerald-400 text-sm flex items-center justify-between border-b border-slate-700/80 pb-1 mb-1.5">
+            <span class="flex items-center gap-1">🐟 ${c.species}</span>
+            <span class="text-xs font-mono text-cyan-300 font-bold">${c.depth_m.toFixed(1)}m djup</span>
+          </div>
+          ${c.length_cm ? `<div class="text-xs text-slate-300 font-mono">Längd: <strong class="text-white">${c.length_cm} cm</strong></div>` : ''}
+          ${c.weight_kg ? `<div class="text-xs text-slate-300 font-mono">Vikt: <strong class="text-white">${c.weight_kg} kg</strong></div>` : ''}
+          ${c.lure ? `<div class="text-[11px] text-slate-300 mt-1 italic">Bete: <span class="text-emerald-300 font-medium">${c.lure}</span></div>` : ''}
+          ${c.note ? `<div class="text-[11px] text-slate-300 bg-slate-800/80 p-1.5 rounded mt-1.5 border border-slate-700/50">"${c.note}"</div>` : ''}
+          <div class="text-[10px] text-slate-400 font-mono mt-2 pt-1 border-t border-slate-800 flex justify-between">
+            <span>${c.date} ${c.time}</span>
+            <span>${c.lat.toFixed(4)}, ${c.lng.toFixed(4)}</span>
+          </div>
+        </div>
+      `;
+
+      marker.bindPopup(popupHtml, { className: 'custom-popup' });
+      marker.addTo(layer);
+    });
+  }, [catches, showCatches]);
+
+  // Render Boat Position and Drift History Trail
+  useEffect(() => {
+    const layer = boatLayerRef.current;
+    const map = mapInstanceRef.current;
+    if (!layer || !map) return;
+    layer.clearLayers();
+
+    if (!boatPosition) return;
+
+    // Track drift trail
+    const history = driftHistoryRef.current;
+    history.push([boatPosition.lat, boatPosition.lng]);
+    if (history.length > 60) history.shift();
+
+    if (history.length > 1) {
+      L.polyline(history, {
+        color: '#38bdf8',
+        weight: 2,
+        dashArray: '3, 6',
+        opacity: 0.75,
+      }).addTo(layer);
+    }
+
+    const boatIconHtml = `
+      <div style="position: relative; width: 28px; height: 28px; display: flex; align-items: center; justify-content: center;">
+        <div style="position: absolute; width: 28px; height: 28px; border-radius: 50%; background: rgba(56, 189, 248, 0.35); animation: ping 1.5s cubic-bezier(0, 0, 0.2, 1) infinite;"></div>
+        <div style="width: 18px; height: 18px; border-radius: 50%; background: #0284c7; border: 2px solid #ffffff; box-shadow: 0 0 10px #38bdf8; display: flex; align-items: center; justify-content: center;">
+          <div style="width: 6px; height: 6px; border-radius: 50%; background: #ffffff;"></div>
+        </div>
+      </div>
+    `;
+
+    const boatMarker = L.marker([boatPosition.lat, boatPosition.lng], {
+      icon: L.divIcon({
+        html: boatIconHtml,
+        className: '',
+        iconSize: [28, 28],
+        iconAnchor: [14, 14],
+      }),
+      zIndexOffset: 1000,
+    });
+
+    boatMarker.bindPopup(`
+      <div class="text-xs">
+        <strong class="text-cyan-400 block mb-1">Båtposition</strong>
+        <div>${boatPosition.lat.toFixed(5)}°N, ${boatPosition.lng.toFixed(5)}°E</div>
+        ${boatPosition.speedKnots !== null && boatPosition.speedKnots !== undefined ? `<div class="text-slate-300 font-mono mt-0.5">Fart: ${boatPosition.speedKnots.toFixed(1)} knop</div>` : ''}
+      </div>
+    `, { className: 'custom-popup' });
+
+    boatMarker.addTo(layer);
+
+    if (isAutoFollow) {
+      map.panTo([boatPosition.lat, boatPosition.lng], { animate: true, duration: 0.6 });
+    }
+  }, [boatPosition, isAutoFollow]);
+
   return (
     <div className="relative w-full h-full select-none overflow-hidden bg-slate-950">
       {/* Map Container */}
@@ -671,6 +802,35 @@ export default function DepthMap({
 
       {/* Top Right Map Layers & Visual Toggles */}
       <div className="absolute top-4 right-4 z-[900] flex items-center gap-2">
+        {/* Toggle Fishing Mode HUD */}
+        <button
+          onClick={onToggleFishingMode}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold border backdrop-blur transition-all shadow-lg ${
+            isFishingMode
+              ? 'bg-cyan-400 text-slate-950 border-cyan-300 shadow-cyan-950/60'
+              : 'bg-slate-900/90 border-cyan-500/50 text-cyan-300 hover:text-white hover:border-cyan-400'
+          }`}
+          title="Växla till taktilt fiskeläge med stora knappar och djuplodning för båt"
+        >
+          <Navigation className={`w-3.5 h-3.5 ${isFishingMode ? 'fill-slate-950' : 'text-cyan-400'}`} />
+          <span>Fiskeläge</span>
+        </button>
+
+        {/* Toggle Catches */}
+        <button
+          onClick={onToggleCatches}
+          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium border backdrop-blur transition-all shadow-lg ${
+            showCatches
+              ? 'bg-emerald-950/80 border-emerald-500/60 text-emerald-300'
+              : 'bg-slate-900/80 border-slate-700/80 text-slate-400 hover:text-slate-200'
+          }`}
+          title="Visa fångstplatser och hugg på sjön"
+        >
+          <Fish className="w-3.5 h-3.5 text-emerald-400" />
+          <span className="hidden sm:inline">Fångster</span>
+          <span className="font-mono text-[10px] text-emerald-400">({catches.length})</span>
+        </button>
+
         {/* Toggle Depth Numbers on markers */}
         <button
           onClick={onToggleDepthLabels}

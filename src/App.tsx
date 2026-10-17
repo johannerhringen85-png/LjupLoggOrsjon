@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
-import { DepthPoint, CalculatedPoint, LakePreset } from './types';
+import { DepthPoint, CalculatedPoint, LakePreset, FishCatch, BoatPosition } from './types';
 import { INITIAL_ORSJON_DATA } from './data/orsjonSampleData';
+import { INITIAL_ORSJON_CATCHES } from './data/orsjonCatches';
 import { calculateDepth, calculateStats, parseCSV } from './utils/depthCalc';
 import TopBar from './components/TopBar';
 import Sidebar from './components/Sidebar';
@@ -9,9 +10,12 @@ import SoundingStopwatch from './components/SoundingStopwatch';
 import PointsTableModal from './components/PointsTableModal';
 import ExportModal from './components/ExportModal';
 import GpxImportModal from './components/GpxImportModal';
+import FishingHud from './components/FishingHud';
+import FishCatchModal from './components/FishCatchModal';
 
 const STORAGE_KEY_POINTS = 'orsjon_depth_points_v1';
 const STORAGE_KEY_SINKRATE = 'orsjon_sink_rate_v1';
+const STORAGE_KEY_CATCHES = 'orsjon_catches_v1';
 
 export default function App() {
   // Load persisted points or initial sample dataset
@@ -42,6 +46,20 @@ export default function App() {
     return 0.8;
   });
 
+  // Fish catches log
+  const [catches, setCatches] = useState<FishCatch[]>(() => {
+    try {
+      const stored = localStorage.getItem(STORAGE_KEY_CATCHES);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch {
+      // ignore
+    }
+    return INITIAL_ORSJON_CATCHES;
+  });
+
   // UI States
   const [selectedPointId, setSelectedPointId] = useState<string | null>(null);
   const [isStopwatchOpen, setIsStopwatchOpen] = useState(false);
@@ -56,6 +74,11 @@ export default function App() {
   const [showBathymetrySurface, setShowBathymetrySurface] = useState(false);
   const [showHeatmap, setShowHeatmap] = useState(false);
   const [heatmapRadius, setHeatmapRadius] = useState(35);
+  const [showCatches, setShowCatches] = useState(true);
+  const [isFishingMode, setIsFishingMode] = useState(false);
+  const [boatPosition, setBoatPosition] = useState<BoatPosition | null>(null);
+  const [isAutoFollow, setIsAutoFollow] = useState(true);
+  const [catchModalData, setCatchModalData] = useState<{ lat: number; lng: number; depth: number | null } | null>(null);
 
   // Persist points when updated
   useEffect(() => {
@@ -74,6 +97,51 @@ export default function App() {
       // Storage quota
     }
   }, [sinkRate]);
+
+  // Persist catches when updated
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY_CATCHES, JSON.stringify(catches));
+    } catch {
+      // Storage quota
+    }
+  }, [catches]);
+
+  // Geolocation tracking for Boat / Fishing Mode
+  useEffect(() => {
+    if (!isFishingMode) return;
+
+    if (!navigator.geolocation) {
+      alert('Geolokalisering stöds inte i din webbläsare.');
+      return;
+    }
+
+    const watchId = navigator.geolocation.watchPosition(
+      (pos) => {
+        const { latitude, longitude, speed, heading, accuracy } = pos.coords;
+        setBoatPosition({
+          lat: latitude,
+          lng: longitude,
+          accuracy: accuracy || undefined,
+          heading: heading !== null && !isNaN(heading) ? heading : null,
+          speedKnots: speed !== null && !isNaN(speed) ? speed * 1.94384 : null,
+          timestamp: pos.timestamp,
+        });
+      },
+      (err) => {
+        console.warn('GPS watch error:', err.message);
+      },
+      {
+        enableHighAccuracy: true,
+        maximumAge: 1000,
+        timeout: 10000,
+      }
+    );
+
+    return () => {
+      navigator.geolocation.clearWatch(watchId);
+    };
+  }, [isFishingMode]);
 
   // Real-Time Depth recalculation
   // SPEC REQUIREMENT: When sink rate is adjusted, dynamically update depth values for all points and max depth!
@@ -221,6 +289,32 @@ export default function App() {
     setSelectedPointId(null);
   };
 
+  // Fish catch save handler
+  const handleSaveCatch = (newCatchData: Omit<FishCatch, 'id'>) => {
+    const newCatch: FishCatch = {
+      ...newCatchData,
+      id: `catch-${Date.now()}`,
+    };
+    setCatches((prev) => [newCatch, ...prev]);
+  };
+
+  // Sounding drop recorded from boat in Fishing Mode
+  const handleBoatSounding = (seconds: number, weight: number, lat: number, lng: number) => {
+    const now = new Date();
+    const newPoint: DepthPoint = {
+      id: `boat-${Date.now()}`,
+      lat,
+      lng,
+      seconds,
+      weight_g: weight,
+      date: now.toISOString().slice(0, 10),
+      time: now.toTimeString().slice(0, 5),
+      note: 'Lodning från båt (fiskeläge)',
+    };
+    setPoints((prev) => [newPoint, ...prev]);
+    setSelectedPointId(newPoint.id);
+  };
+
   // Trigger map coordinate picker mode
   const handleTriggerMapPick = () => {
     setIsStopwatchOpen(false);
@@ -256,6 +350,8 @@ export default function App() {
         onOpenTable={() => setIsTableModalOpen(true)}
         onOpenExport={() => setIsExportModalOpen(true)}
         onOpenGpxImport={() => setIsGpxModalOpen(true)}
+        onToggleFishingMode={() => setIsFishingMode(!isFishingMode)}
+        isFishingMode={isFishingMode}
         pointsCount={points.length}
       />
 
@@ -300,6 +396,13 @@ export default function App() {
             onToggleHeatmap={() => setShowHeatmap(!showHeatmap)}
             heatmapRadius={heatmapRadius}
             onHeatmapRadiusChange={setHeatmapRadius}
+            catches={catches}
+            showCatches={showCatches}
+            onToggleCatches={() => setShowCatches(!showCatches)}
+            boatPosition={boatPosition}
+            isFishingMode={isFishingMode}
+            onToggleFishingMode={() => setIsFishingMode(!isFishingMode)}
+            isAutoFollow={isAutoFollow}
           />
         </main>
       </div>
@@ -346,6 +449,31 @@ export default function App() {
           sinkRate={sinkRate}
           onImportGpxPoints={handleImportGpxPoints}
           onClose={() => setIsGpxModalOpen(false)}
+        />
+      )}
+
+      {/* Tactile On-The-Water Fishing Mode HUD */}
+      {isFishingMode && (
+        <FishingHud
+          boatPosition={boatPosition}
+          points={calculatedPoints}
+          sinkRate={sinkRate}
+          onRecordSounding={handleBoatSounding}
+          onOpenCatchLogger={(lat, lng, depth) => setCatchModalData({ lat, lng, depth })}
+          isAutoFollow={isAutoFollow}
+          onToggleAutoFollow={() => setIsAutoFollow(!isAutoFollow)}
+          onClose={() => setIsFishingMode(false)}
+        />
+      )}
+
+      {/* Fish Strike / Catch Modal */}
+      {catchModalData && (
+        <FishCatchModal
+          initialLat={catchModalData.lat}
+          initialLng={catchModalData.lng}
+          estimatedDepth={catchModalData.depth}
+          onSaveCatch={handleSaveCatch}
+          onClose={() => setCatchModalData(null)}
         />
       )}
     </div>
